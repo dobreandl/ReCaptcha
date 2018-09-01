@@ -107,7 +107,7 @@ internal class ReCaptchaWebViewManager {
     var forceVisibleChallenge = false {
         didSet {
             // Also works on iOS < 9
-            webView.performSelector(
+            webView?.performSelector(
                 onMainThread: "_setCustomUserAgent:",
                 with: forceVisibleChallenge ? Constants.BotUserAgent : nil,
                 waitUntilDone: true
@@ -126,7 +126,7 @@ internal class ReCaptchaWebViewManager {
     var shouldResetOnError = true
 
     /// The JS message recoder
-    fileprivate var decoder: ReCaptchaDecoder!
+    fileprivate var decoder: ReCaptchaDecoder?
 
     /// Indicates if the script has already been loaded by the `webView`
     fileprivate var didFinishLoading = false // webView.isLoading does not work in this case
@@ -142,18 +142,17 @@ internal class ReCaptchaWebViewManager {
         WebViewDelegate(manager: self)
     }()
 
+    var containedWebView: WKWebView?
+    
     /// The webview that executes JS code
-    lazy var webView: WKWebView = {
-        let webview = WKWebView(
-            frame: CGRect(x: 0, y: 0, width: 1, height: 1),
-            configuration: self.buildConfiguration()
-        )
-        webview.navigationDelegate = self.webviewDelegate
-        webview.accessibilityIdentifier = "webview"
-        webview.accessibilityTraits = UIAccessibilityTraitLink
-        webview.isHidden = true
+    lazy var webView: WKWebView? = {
 
-        return webview
+        self.containedWebView?.navigationDelegate = self.webviewDelegate
+        self.containedWebView?.accessibilityIdentifier = "webview"
+        self.containedWebView?.accessibilityTraits = UIAccessibilityTraitLink
+        self.containedWebView?.isHidden = true
+
+        return self.containedWebView
     }()
 
     /**
@@ -171,6 +170,11 @@ internal class ReCaptchaWebViewManager {
 
         let formattedHTML = String(format: html, arguments: ["apiKey": apiKey, "endpoint": endpoint])
 
+        self.containedWebView = WKWebView(
+            frame: CGRect(x: 0, y: 0, width: 1, height: 1),
+            configuration: self.buildConfiguration()
+        )
+        
         if let window = UIApplication.shared.keyWindow {
             setupWebview(on: window, html: formattedHTML, url: baseURL)
         }
@@ -192,8 +196,11 @@ internal class ReCaptchaWebViewManager {
      Starts the challenge validation
      */
      func validate(on view: UIView) {
-        webView.isHidden = false
-        view.addSubview(webView)
+        webView?.isHidden = false
+        
+        if let webView = webView {
+            view.addSubview(webView)
+        }
 
         execute()
     }
@@ -201,7 +208,16 @@ internal class ReCaptchaWebViewManager {
 
     /// Stops the execution of the webview
     func stop() {
-        webView.stopLoading()
+        webView?.stopLoading()
+    }
+    
+    func clear() {
+        webView?.stopLoading()
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "recaptcha")
+        webView?.removeFromSuperview()
+        
+        decoder?.sendMessage = nil
+        decoder = nil
     }
 
     /**
@@ -213,9 +229,9 @@ internal class ReCaptchaWebViewManager {
         didFinishLoading = false
         webviewDelegate.reset()
 
-        webView.evaluateJavaScript(Constants.ResetCommand) { [weak self] _, error in
+        webView?.evaluateJavaScript(Constants.ResetCommand) { [weak self] _, error in
             if let error = error {
-                self?.decoder.send(error: .unexpected(error))
+                self?.decoder?.send(error: .unexpected(error))
             }
         }
     }
@@ -235,9 +251,9 @@ fileprivate extension ReCaptchaWebViewManager {
             return
         }
 
-        webView.evaluateJavaScript(Constants.ExecuteJSCommand) { [weak self] _, error in
+        webView?.evaluateJavaScript(Constants.ExecuteJSCommand) { [weak self] _, error in
             if let error = error {
-                self?.decoder.send(error: .unexpected(error))
+                self?.decoder?.send(error: .unexpected(error))
             }
         }
     }
@@ -249,7 +265,10 @@ fileprivate extension ReCaptchaWebViewManager {
      */
     func buildConfiguration() -> WKWebViewConfiguration {
         let controller = WKUserContentController()
-        controller.add(decoder, name: "recaptcha")
+        
+        if let decoder = decoder {
+            controller.add(decoder, name: "recaptcha")
+        }
 
         let conf = WKWebViewConfiguration()
         conf.userContentController = controller
@@ -268,7 +287,7 @@ fileprivate extension ReCaptchaWebViewManager {
             completion?(.token(token))
 
         case .error(let error):
-            if shouldResetOnError, let view = webView.superview {
+            if shouldResetOnError, let view = webView?.superview {
                 reset()
                 validate(on: view)
             }
@@ -280,7 +299,10 @@ fileprivate extension ReCaptchaWebViewManager {
             // Ensures `configureWebView` won't get called multiple times in a short period
             DispatchQueue.main.debounce(interval: 1) { [weak self] in
                 guard let `self` = self else { return }
-                self.configureWebView?(self.webView)
+                
+                if let webView = self.webView {
+                    self.configureWebView?(webView)
+                }
             }
 
         case .didLoad:
@@ -303,8 +325,12 @@ fileprivate extension ReCaptchaWebViewManager {
      Adds the webview to a valid UIView and loads the initial HTML file
      */
     func setupWebview(on window: UIWindow, html: String, url: URL) {
-        window.addSubview(webView)
-        webView.loadHTMLString(html, baseURL: url)
+        
+        if let webView = webView {
+            window.addSubview(webView)
+        }
+        
+        webView?.loadHTMLString(html, baseURL: url)
 
         if let observer = observer {
             NotificationCenter.default.removeObserver(observer)

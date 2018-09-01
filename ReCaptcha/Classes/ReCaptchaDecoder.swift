@@ -33,7 +33,7 @@ internal class ReCaptchaDecoder: NSObject {
     }
 
     /// The closure that receives messages
-    fileprivate let sendMessage: ((Result) -> Void)
+    var sendMessage: ((Result) -> Void)?
 
     /**
      - parameter didReceiveMessage: A closure that receives a ReCaptchaDecoder.Result
@@ -53,7 +53,7 @@ internal class ReCaptchaDecoder: NSObject {
      Sends an error to the completion closure
      */
     func send(error: ReCaptchaError) {
-        sendMessage(.error(error))
+        sendMessage?(.error(error))
     }
 }
 
@@ -65,10 +65,12 @@ internal class ReCaptchaDecoder: NSObject {
 extension ReCaptchaDecoder: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let dict = message.body as? [String: Any] else {
-            return sendMessage(.error(.wrongMessageFormat))
+            sendMessage?(.error(.wrongMessageFormat))
+            
+            return
         }
 
-        sendMessage(Result.from(response: dict))
+        sendMessage?(Result.from(response: dict))
     }
 }
 

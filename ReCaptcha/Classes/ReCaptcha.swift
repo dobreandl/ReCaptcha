@@ -155,6 +155,10 @@ public class ReCaptcha {
     init(manager: ReCaptchaWebViewManager) {
         self.manager = manager
     }
+    
+    deinit {
+        self.clear()
+    }
 
     /**
      - parameters:
@@ -177,6 +181,10 @@ public class ReCaptcha {
         manager.stop()
     }
 
+    // Clears the webviews
+    public func clear() {
+        manager.clear()
+    }
 
     /**
      - parameter configure: A closure that receives an instance of `WKWebView` for configuration.
